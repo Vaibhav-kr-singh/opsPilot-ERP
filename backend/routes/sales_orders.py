@@ -1,0 +1,108 @@
+from flask import Blueprint, request, jsonify
+from db import get_db_connection
+
+sales_orders_bp = Blueprint('sales_orders', __name__)
+
+@sales_orders_bp.route('', methods=['GET'])
+def get_all_orders():
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM sales_orders")
+            items = cursor.fetchall()
+            
+            for item in items:
+                if item.get('order_date'): item['order_date'] = item['order_date'].strftime('%Y-%m-%d')
+                    
+        return jsonify({"success": True, "data": items})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: conn.close()
+
+@sales_orders_bp.route('/<int:id>', methods=['GET'])
+def get_order(id):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM sales_orders WHERE id = %s", (id,))
+            item = cursor.fetchone()
+            if not item: return jsonify({"success": False, "error": "Order not found"}), 404
+                
+            if item.get('order_date'): item['order_date'] = item['order_date'].strftime('%Y-%m-%d')
+                
+        return jsonify({"success": True, "data": item})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: conn.close()
+
+@sales_orders_bp.route('', methods=['POST'])
+def create_order():
+    data = request.get_json()
+    if not data or 'order_number' not in data:
+        return jsonify({"success": False, "error": "Missing required field: 'order_number'"}), 400
+
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            sql = """
+                INSERT INTO sales_orders 
+                (order_number, customer, product, quantity, value, order_date, status) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(sql, (
+                data.get('order_number'),
+                data.get('customer'),
+                data.get('product'),
+                data.get('quantity', 0),
+                data.get('value', 0.00),
+                data.get('order_date'),
+                data.get('status', 'Pending')
+            ))
+            new_id = cursor.lastrowid
+        return jsonify({"success": True, "data": {"id": new_id}, "message": "Order created"}), 201
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: conn.close()
+
+@sales_orders_bp.route('/<int:id>', methods=['PUT'])
+def update_order(id):
+    data = request.get_json()
+    if not data: return jsonify({"success": False, "error": "No data provided"}), 400
+
+    updates = []
+    params = []
+    for key, value in data.items():
+        if key != 'id':
+            updates.append(f"{key} = %s")
+            params.append(value)
+    
+    if not updates: return jsonify({"success": False, "error": "No fields to update"}), 400
+    params.append(id)
+    
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            sql = f"UPDATE sales_orders SET {', '.join(updates)} WHERE id = %s"
+            cursor.execute(sql, tuple(params))
+            if cursor.rowcount == 0: return jsonify({"success": False, "error": "Order not found"}), 404
+        return jsonify({"success": True, "message": "Order updated successfully"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: conn.close()
+
+@sales_orders_bp.route('/<int:id>', methods=['DELETE'])
+def delete_order(id):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM sales_orders WHERE id = %s", (id,))
+            if cursor.rowcount == 0: return jsonify({"success": False, "error": "Order not found"}), 404
+        return jsonify({"success": True, "message": "Order deleted successfully"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals() and conn: conn.close()
